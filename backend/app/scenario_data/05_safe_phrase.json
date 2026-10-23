@@ -1,0 +1,47 @@
+{
+  "id": "safe-context-otp",
+  "order": 5,
+  "title": "Suspicious phrase, safe context",
+  "summary": "A bank awareness message that says \"Never share your OTP with anyone.\" Mentioning an OTP is not a request for one.",
+  "voice_kind": "unknown",
+  "voice_note": "Written as a human caller. No audio is bundled.",
+  "audio": null,
+  "duration": 30,
+  "expected": {
+    "max_level": "low",
+    "pings": 0,
+    "note": "The phrase is advice, not a request. No warning."
+  },
+  "events": [
+    {
+      "t": 2,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Good morning. This is a courtesy message from your bank."
+    },
+    {
+      "t": 7,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Never share your OTP with anyone."
+    },
+    {
+      "t": 12,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Our staff will never ask for your PIN or password."
+    },
+    {
+      "t": 18,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "If you receive a suspicious call, hang up and contact us through the official app."
+    },
+    {
+      "t": 24,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Thank you for banking with us."
+    }
+  ]
+}

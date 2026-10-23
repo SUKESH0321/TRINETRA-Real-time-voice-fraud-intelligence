@@ -1,0 +1,60 @@
+{
+  "id": "escalating-bank-scam",
+  "order": 7,
+  "bonus": true,
+  "title": "Bonus: escalating bank scam",
+  "summary": "A caller escalates from an OTP request to remote access and a 'safe account' transfer. Shows High -> Critical escalation.",
+  "voice_kind": "unknown",
+  "voice_note": "Written as a human caller. No audio is bundled.",
+  "audio": null,
+  "duration": 46,
+  "expected": {
+    "max_level": "critical",
+    "pings": 3,
+    "note": "A High ping at the OTP request, a Critical ping when remote access is requested, and a final Critical ping when the caller asks to move money. Repeats in between stay silent."
+  },
+  "events": [
+    {
+      "t": 2,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Good afternoon, I'm calling from the bank's security department."
+    },
+    {
+      "t": 8,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "We have detected suspicious activity on your account."
+    },
+    {
+      "t": 14,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Please tell me the OTP that was just sent to your mobile so I can block the transaction."
+    },
+    {
+      "t": 21,
+      "type": "transcript",
+      "speaker": "you",
+      "text": "I'm not sure about this."
+    },
+    {
+      "t": 24,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Then please install AnyDesk now so I can reverse the transaction for you."
+    },
+    {
+      "t": 32,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Do not call the bank, this is not a normal procedure."
+    },
+    {
+      "t": 38,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Now move your savings to the safe account I will give you."
+    }
+  ]
+}

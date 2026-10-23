@@ -1,0 +1,22 @@
+{
+  "name": "trinetra",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TRINETRA: real-time voice fraud intelligence (hackathon prototype)",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "setup:ml": "node scripts/setup.mjs --ml",
+    "dev": "node scripts/dev.mjs",
+    "dev:https": "node scripts/dev.mjs --https",
+    "build": "npm --prefix frontend run build",
+    "start": "npm run build && node scripts/run-backend.mjs",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "node scripts/run-backend.mjs --pytest",
+    "test:frontend": "npm --prefix frontend test",
+    "check:scenarios": "node scripts/run-backend.mjs --check-scenarios"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

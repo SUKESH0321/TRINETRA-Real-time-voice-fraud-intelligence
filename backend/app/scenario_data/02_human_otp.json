@@ -1,0 +1,66 @@
+{
+  "id": "human-otp-scam",
+  "order": 2,
+  "title": "Human caller, OTP request",
+  "summary": "A caller poses as a bank employee and asks for a one-time code. Voice authenticity is not assessed.",
+  "voice_kind": "unknown",
+  "voice_note": "Written as a natural human caller. No audio is bundled, so voice authenticity stays inconclusive. The warning is driven by the conversation alone.",
+  "audio": null,
+  "duration": 40,
+  "expected": {
+    "max_level": "high",
+    "pings": 1,
+    "alert_at": 18,
+    "note": "High conversational risk and an immediate warning at 00:18. The repeated request at 00:28 does not ping again."
+  },
+  "events": [
+    {
+      "t": 2,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Hello sir, good afternoon. This is Rahul calling from the bank's fraud prevention department."
+    },
+    {
+      "t": 8,
+      "type": "transcript",
+      "speaker": "you",
+      "text": "Oh, hello. What is this about?"
+    },
+    {
+      "t": 11,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "We noticed an unusual transaction on your card, and I want to help you secure your account."
+    },
+    {
+      "t": 15,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "A verification code has just been sent to your phone."
+    },
+    {
+      "t": 18,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Please read the code you just received so I can secure your account."
+    },
+    {
+      "t": 24,
+      "type": "transcript",
+      "speaker": "you",
+      "text": "Is it safe to share it? I thought the bank never asks for it."
+    },
+    {
+      "t": 28,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Yes sir, it is completely safe. Just read the code to me, it is only for verification."
+    },
+    {
+      "t": 34,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Sir, please hurry, the transaction will go through in two minutes."
+    }
+  ]
+}

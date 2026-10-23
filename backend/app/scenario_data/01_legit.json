@@ -1,0 +1,53 @@
+{
+  "id": "legit-human",
+  "order": 1,
+  "title": "Legitimate conversation",
+  "summary": "An ordinary call between friends. Nothing suspicious is asked for.",
+  "voice_kind": "unknown",
+  "voice_note": "Written as a human caller. No audio is bundled, so no voice analysis runs; voice authenticity stays inconclusive.",
+  "audio": null,
+  "duration": 34,
+  "expected": {
+    "max_level": "low",
+    "pings": 0,
+    "note": "Low conversational risk. No scam alert."
+  },
+  "events": [
+    {
+      "t": 2,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Hi, it's Maya. Are we still on for dinner on Saturday?"
+    },
+    {
+      "t": 7,
+      "type": "transcript",
+      "speaker": "you",
+      "text": "Yes, seven o'clock works for me. Should I bring anything?"
+    },
+    {
+      "t": 12,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Maybe a dessert. I'll send you the address by message this afternoon."
+    },
+    {
+      "t": 18,
+      "type": "transcript",
+      "speaker": "you",
+      "text": "Perfect. By the way, can we move the study meeting to three o'clock tomorrow?"
+    },
+    {
+      "t": 24,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Sure, three works. I'll update the calendar invite and send it over."
+    },
+    {
+      "t": 30,
+      "type": "transcript",
+      "speaker": "you",
+      "text": "Great, see you Saturday. Bye!"
+    }
+  ]
+}

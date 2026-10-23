@@ -1,0 +1,52 @@
+# TRINETRA risk rules. Everything the risk engine and alert manager decide on lives here.
+# Scores are 0..1. Edit and restart the backend to change behaviour.
+
+levels:                      # thresholds on the conversation (scam) score
+  elevated: 0.30
+  high: 0.55
+  critical: 0.80
+
+scam:
+  half_life_s: 120           # evidence freshness: weight halves every N seconds of call time
+  min_finding_confidence: 0.40
+  min_effective_weight: 0.20 # a category must be at least this strong to corroborate another
+  corroboration_factor: 0.35 # each other DISTINCT category adds factor x its own strength (repeats add nothing)
+  max_score: 0.98
+  category_weights:          # base strength of one finding in each category
+    credential_request: 0.62
+    remote_access: 0.60
+    safe_account_transfer: 0.70
+    urgent_money_request: 0.60
+    untraceable_payment: 0.60
+    impersonation: 0.25
+    threat_pressure: 0.35
+    bypass_verification: 0.40
+    secrecy: 0.35
+
+voice:
+  half_life_s: 120
+  min_confidence: 0.50       # detector results below this confidence are treated as inconclusive
+  indicator_threshold: 0.60  # score at/above this => "indicators present"
+  voice_only_max_level: elevated   # voice signals alone can never exceed this level
+  corroboration_bumps_level: false # scam >= elevated AND strong voice indicators => +1 level (reported separately)
+
+alerts:
+  cooldown_s: 45             # per-incident cooldown for same-level alerts
+  global_min_gap_s: 8        # minimum gap between any two audible alerts (escalations bypass it)
+  escalation_delta: 0.15     # score rise that counts as "genuinely more serious" at the same level
+  quiet_mode: false          # quiet mode: only critical alerts are audible/vibrate
+  vibration:
+    high: [200]
+    critical: [300, 120, 300, 120, 500]
+
+actions:                     # recommended protective action per category
+  credential_request: "Do not share the code. End the conversation and contact your bank using its official app or published number."
+  remote_access: "Do not install any app or share your screen. End the call; genuine banks and support teams do not ask for remote access."
+  safe_account_transfer: "Do not transfer money. No bank or agency asks you to move funds to a 'safe' account. Hang up and call the official number."
+  urgent_money_request: "Do not send money. Hang up and call the person on a number you already know to verify the request."
+  untraceable_payment: "Do not pay with gift cards or crypto. Legitimate organisations do not demand these. End the call."
+  impersonation: "Caller identity is unverified. Hang up and call back using an official number you look up yourself."
+  threat_pressure: "Pressure and threats are a common scam tactic. Take a moment, end the call, and verify through official channels."
+  bypass_verification: "Be wary: you are being told not to verify. Always verify through the official app, branch or published number."
+  secrecy: "A caller asking you to keep the call secret is a warning sign. Talk to someone you trust."
+  default: "Stay cautious. Verify the caller through an official channel before sharing anything."

@@ -1,0 +1,52 @@
+{
+  "id": "manipulated-audio",
+  "order": 6,
+  "title": "Manipulated / edited audio",
+  "summary": "A benign delivery message whose audio was edited: two recordings with different background noise are joined at about 00:10.",
+  "voice_kind": "synthetic-tts",
+  "voice_note": "The clip was built for this demo by joining two text-to-speech segments with different noise floors. The manipulation indicator is scenario-injected (simulated). With TRINETRA_EXPERIMENTAL_SPLICE=1 the experimental noise-floor check also analyses the clip for real.",
+  "audio": "manipulated_splice.wav",
+  "duration": 23,
+  "expected": {
+    "max_level": "elevated",
+    "pings": 0,
+    "note": "Manipulation is shown on its own. No scam content, so no fraud verdict and no ping."
+  },
+  "events": [
+    {
+      "t": 1.0,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Hello, this is a delivery update for your parcel."
+    },
+    {
+      "t": 6.1,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "It will arrive tomorrow between two and four in the afternoon."
+    },
+    {
+      "t": 11.3,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Please make sure someone is at home to receive it."
+    },
+    {
+      "t": 11.5,
+      "type": "voice",
+      "dimension": "manipulation",
+      "status": "indicators",
+      "score": 0.78,
+      "confidence": 0.6,
+      "evidence": [
+        "Scenario-labelled: this clip was edited by joining two recordings (noise floor changes around 00:10)."
+      ]
+    },
+    {
+      "t": 15.9,
+      "type": "transcript",
+      "speaker": "caller",
+      "text": "Thank you for choosing our service."
+    }
+  ]
+}

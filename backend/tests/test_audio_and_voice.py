@@ -116,17 +116,69 @@ def test_splice_heuristic_inconclusive_on_silence_or_short():
     assert SpliceHeuristic().detect(AudioWindow(busy, SAMPLE_RATE, 0)).status == "inconclusive"
 
 
+def spliced_window():
+    return np.concatenate([speechy(1.6, 0.002), speechy(1.6, 0.05)])
+
+
+def feed_windows(session, x, n):
+    last = None
+    for i in range(n):
+        msgs = session.ingest_audio_window(AudioWindow(x, SAMPLE_RATE, float(i)))
+        last = [m for m in msgs if m["type"] == "risk"][-1]["assessment"] if any(m["type"] == "risk" for m in msgs) else last
+    return last
+
+
 def test_synthetic_and_manipulation_detectors_do_not_share_results():
-    x = np.concatenate([speechy(1.6, 0.002), speechy(1.6, 0.05)])
-    reg = DetectorRegistry(manipulation=SpliceHeuristic())
-    s = CallSession(registry=reg)
+    s = CallSession(registry=DetectorRegistry(manipulation=SpliceHeuristic()))
     s.start("live-mic")
-    msgs = s.ingest_audio_window(AudioWindow(x, SAMPLE_RATE, 0))
-    risk = [m for m in msgs if m["type"] == "risk"][-1]["assessment"]
+    risk = feed_windows(s, spliced_window(), 2)
     assert risk["dimensions"]["manipulation"]["status"] == "indicators"
+    assert risk["dimensions"]["manipulation"]["label"].endswith("(experimental)")
     assert risk["dimensions"]["synthetic"]["status"] == "unavailable"  # untouched by the other detector
     assert risk["dimensions"]["scam"]["value"] == 0
-    assert risk["level"] == "elevated"  # voice-only is capped, never a fraud verdict
+
+
+def test_experimental_manipulation_is_shown_but_does_not_change_the_risk_level_by_default():
+    s = CallSession(registry=DetectorRegistry(manipulation=SpliceHeuristic()))
+    s.start("live-mic")
+    risk = feed_windows(s, spliced_window(), 3)
+    assert risk["dimensions"]["manipulation"]["status"] == "indicators"
+    assert risk["level"] == "low" and not risk["alert_eligible"]
+    assert any("information only" in r for r in risk["reasons"])
+    assert not [m for m in s.history if m["type"] == "alert"]
+
+
+def test_experimental_manipulation_can_raise_the_level_only_when_configured():
+    from app.config import with_overrides, load_rules
+
+    rules = with_overrides(load_rules(), voice={"experimental_can_raise_level": True})
+    s = CallSession(rules=rules, registry=DetectorRegistry(manipulation=SpliceHeuristic()))
+    s.start("live-mic")
+    risk = feed_windows(s, spliced_window(), 3)
+    assert risk["level"] == "elevated"  # still capped at the voice-only maximum, never a fraud verdict
+
+
+def test_one_noisy_window_is_not_reported_as_manipulation():
+    s = CallSession(registry=DetectorRegistry(manipulation=SpliceHeuristic()))
+    s.start("live-mic")
+    risk = feed_windows(s, spliced_window(), 1)
+    assert risk["dimensions"]["manipulation"]["status"] in ("inconclusive", "clear")
+
+
+def test_untouched_audio_is_never_flagged_by_the_default_registry_settings(monkeypatch):
+    monkeypatch.delenv("TRINETRA_EXPERIMENTAL_SPLICE", raising=False)
+    reg = DetectorRegistry.from_env()
+    assert reg.manipulation.available and reg.status()["manipulation"]["experimental"] is True
+    s = CallSession(registry=reg)
+    s.start("live-mic")
+    risk = feed_windows(s, speechy(3.2, 0.01), 4)
+    assert risk["dimensions"]["manipulation"]["status"] in ("clear", "inconclusive")
+
+
+def test_manipulation_check_can_be_switched_off(monkeypatch):
+    monkeypatch.setenv("TRINETRA_EXPERIMENTAL_SPLICE", "0")
+    st = DetectorRegistry.from_env().status()["manipulation"]
+    assert st["available"] is False
 
 
 # ---- live session audio path -----------------------------------------------------------------
@@ -213,3 +265,16 @@ def test_indicators_need_agreement_across_windows():
 
 def test_smoother_reports_inconclusive_until_enough_windows():
     assert run_windows([0.99, 0.99])["status"] == "inconclusive"
+
+
+def test_old_detector_hits_expire_by_time_not_by_window_count():
+    s = CallSession(registry=DetectorRegistry(synthetic=Flaky([0.99, 0.99, 0.99, 0.05, 0.05, 0.05])))
+    s.start("live-mic")
+    for i in range(3):  # three agreeing windows: indicators
+        last = s.ingest_audio_window(AudioWindow(noise_with_bursts(3, 0.05), SAMPLE_RATE, float(i)))
+    assert [m for m in last if m["type"] == "voice"][-1]["result"]["status"] == "indicators"
+    final = None
+    for i in range(3):  # much later (30 s on) the evidence is stale and must not carry over
+        final = s.ingest_audio_window(AudioWindow(noise_with_bursts(3, 0.05), SAMPLE_RATE, 30.0 + i))
+    status = [m for m in final if m["type"] == "voice"][-1]["result"]["status"]
+    assert status == "clear"

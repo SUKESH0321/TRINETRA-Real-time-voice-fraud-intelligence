@@ -60,9 +60,12 @@ function VoiceRow({ n, title, dim, result }: { n: string; title: string; dim: Di
       <div className="min-w-0">
         <div className="flex items-start justify-between gap-3">
           <h3 className="text-[15px] font-medium">{title}</h3>
-          <SourceBadge source={dim?.source ?? "unavailable"} />
+          {status === "no_audio"
+            ? <span title="This scenario has no audio clip, so there was nothing for the detector to analyse." className="mono inline-flex items-center border border-rule px-1.5 py-px text-[10px] uppercase leading-4 tracking-[0.08em] text-ink-2">No audio</span>
+            : <SourceBadge source={dim?.source ?? "unavailable"} />}
         </div>
         <p key={status} className={cx("display anim-line mt-1 text-[30px] italic", tone(status))}>{dim?.label ?? "Not analysed"}</p>
+        {status === "no_audio" && <p className="mt-1 text-[13px] text-ink-2">This demo has no audio clip. The detector runs on scenarios that have audio and on live calls.</p>}
         {dim?.value != null && status !== "unavailable" && <Meter value={dim.value} level={lvl} segments={24} className="mt-2" />}
         {result && (
           <details className="mt-2 text-[13px] text-ink-2">
@@ -83,10 +86,11 @@ export function Indicators({ a, voice, findings }: {
   const scam = a?.dimensions.scam;
   const level = (scam?.status ?? "low") as Level;
   const last = findings.length ? findings[findings.length - 1] : null;
-  const val = (d: DimensionState | undefined): number | null => (d && d.status !== "unavailable" && d.value != null ? d.value : null);
+  const val = (d: DimensionState | undefined): number | null => (d && d.status !== "unavailable" && d.status !== "no_audio" && d.value != null ? d.value : null);
+  const na = (d: DimensionState | undefined): string => (d?.status === "no_audio" ? "no audio" : "unavailable");
   return (
     <Card title="Three independent signals" right={<span>never summed</span>}>
-      <SignalRadar values={[val(a?.dimensions.synthetic), val(a?.dimensions.manipulation), val(scam)]} level={a?.level ?? "low"} />
+      <SignalRadar values={[val(a?.dimensions.synthetic), val(a?.dimensions.manipulation), val(scam)]} naText={[na(a?.dimensions.synthetic), na(a?.dimensions.manipulation), "unavailable"]} level={a?.level ?? "low"} />
       <ol className="mt-6">
         <VoiceRow n="01" title="Synthetic speech indicators" dim={a?.dimensions.synthetic} result={voice.synthetic} />
         <VoiceRow n="02" title="Voice manipulation indicators" dim={a?.dimensions.manipulation} result={voice.manipulation} />

@@ -28,6 +28,7 @@ voice:
   min_confidence: 0.50       # detector results below this confidence are treated as inconclusive
   indicator_threshold: 0.60  # score at/above this => "indicators present"
   voice_only_max_level: elevated   # voice signals alone can never exceed this level
+  experimental_can_raise_level: false  # results from experimental detectors are shown but never raise the level or alert
   corroboration_bumps_level: false # scam >= elevated AND strong voice indicators => +1 level (reported separately)
 
 alerts:

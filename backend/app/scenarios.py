@@ -19,7 +19,7 @@ from typing import Any, Awaitable, Callable
 import numpy as np
 
 from .audio_ingestion import AudioWindow, RollingBuffer, SAMPLE_RATE
-from .models import SRC_SCRIPTED, SRC_SIMULATED, SRC_UNAVAILABLE, VoiceResult
+from .models import SRC_NO_AUDIO, SRC_SCRIPTED, SRC_SIMULATED, SRC_UNAVAILABLE, VoiceResult
 from .session import CallSession
 
 SCENARIO_DIR = Path(__file__).resolve().parent / "scenario_data"
@@ -30,12 +30,24 @@ AUDIO_DIR = SCENARIO_DIR / "audio"
 class Scenario:
     id: str
     data: dict[str, Any]
+    audio_dir: Path = AUDIO_DIR
 
     @property
     def audio_path(self) -> Path | None:
+        """The bundled clip, or a recording you drop in as <scenario-id>.wav (16 kHz mono 16-bit)."""
         name = self.data.get("audio")
-        p = AUDIO_DIR / name if name else None
-        return p if p and p.exists() else None
+        for candidate in ([name] if name else []) + [f"{self.id}.wav"]:
+            p = self.audio_dir / candidate
+            if p.exists():
+                return p
+        return None
+
+    @property
+    def audio_kind(self) -> str:
+        p = self.audio_path
+        if p is None:
+            return "none"
+        return "tts" if p.name == self.data.get("audio") else "user"
 
     def public(self) -> dict[str, Any]:
         d = self.data
@@ -47,6 +59,7 @@ class Scenario:
             "voice_note": d.get("voice_note", ""),
             "duration": d["duration"],
             "has_audio": self.audio_path is not None,
+            "audio_kind": self.audio_kind,
             "audio_url": f"/api/scenarios/{self.id}/audio" if self.audio_path else None,
             "expected": d["expected"],
             "injected": [e for e in d["events"] if e["type"] == "voice"],
@@ -59,7 +72,7 @@ def load_scenarios(directory: Path | None = None) -> dict[str, Scenario]:
     out: dict[str, Scenario] = {}
     for p in sorted((directory or SCENARIO_DIR).glob("*.json")):
         data = json.loads(p.read_text(encoding="utf-8"))
-        out[data["id"]] = Scenario(data["id"], data)
+        out[data["id"]] = Scenario(data["id"], data, (directory or SCENARIO_DIR) / "audio")
     return dict(sorted(out.items(), key=lambda kv: kv[1].data.get("order", 99)))
 
 
@@ -95,9 +108,15 @@ def initial_voice_notes(s: Scenario, session: CallSession) -> list[VoiceResult]:
     for dim, det in (("synthetic", reg.synthetic), ("manipulation", reg.manipulation)):
         if has_audio and det.available:
             continue  # real windows will report
-        why = ("This scenario has no audio clip; nothing to analyse." if not has_audio
-               else f"No {dim} detector is installed.")
-        out.append(VoiceResult(dim, "unavailable", None, 0.0, [why], "unavailable",
+        if not has_audio:
+            # The detector may be perfectly healthy: there is simply no audio to listen to.
+            ready = "The detector is installed and runs on scenarios that have audio and on live calls." if det.available else \
+                "The detector is also not installed (see the README)."
+            out.append(VoiceResult(dim, "no_audio", None, 0.0, [f"This scenario has no audio clip, so nothing was analysed. {ready}"],
+                                   "no-audio", ["Scenario-injected evidence (if any) is labelled 'simulated' and is not a detector output."],
+                                   SRC_NO_AUDIO, 0.0))
+            continue
+        out.append(VoiceResult(dim, "unavailable", None, 0.0, [f"No {dim} detector is installed."], "unavailable",
                                ["Scenario-injected evidence (if any) is labelled 'simulated' and is not a detector output."],
                                SRC_UNAVAILABLE, 0.0))
     return out

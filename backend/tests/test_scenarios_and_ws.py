@@ -250,3 +250,71 @@ def test_unavailable_window_results_never_erase_injected_evidence():
     assert final["dimensions"]["synthetic"]["source"] == "real"
     unavailable_msgs = [m for m in msgs if m["type"] == "voice" and m["result"]["status"] == "unavailable"]
     assert len(unavailable_msgs) <= 1  # reported once, not once per audio window
+
+
+# ---- a scenario without audio is "no audio", never "detector unavailable" -----------------------------
+def test_scenario_without_audio_says_no_audio_even_when_detectors_are_installed():
+    from app.voice_analysis import SpliceHeuristic
+
+    reg = DetectorRegistry(manipulation=SpliceHeuristic())  # a working detector is present
+    s = CallSession(load_rules(), reg, UnavailableTranscriber())
+    msgs = run_sync(s, SCENARIOS["human-otp-scam"])
+    last = [m for m in msgs if m["type"] == "risk"][-1]["assessment"]
+    for dim in ("synthetic", "manipulation"):
+        d = last["dimensions"][dim]
+        assert d["status"] == "no_audio" and d["label"] == "Not analysed: no audio" and d["value"] is None
+    assert last["voice_authenticity"].startswith("Inconclusive") and "no audio" in last["voice_authenticity"]
+    assert any("no audio" in u for u in last["uncertainty"])
+    titles = [m["entry"]["title"] for m in msgs if m["type"] == "timeline" and m["entry"]["kind"] == "voice"]
+    assert titles and all("not analysed (no audio" in t for t in titles)
+    assert not any("unavailable" in t.lower() for t in titles)
+
+
+def test_no_audio_note_never_erases_injected_evidence():
+    s = CallSession(load_rules(), DetectorRegistry(), UnavailableTranscriber())
+    s.start("scenario")
+    from app.models import VoiceResult
+    s.ingest_voice(VoiceResult("synthetic", "indicators", 0.9, 0.9, ["x"], "scenario-injected", [], "simulated", 3.0))
+    s.ingest_voice(VoiceResult("synthetic", "no_audio", None, 0.0, ["none"], "no-audio", [], "unavailable", 4.0))
+    assert s.engine.assess(5.0).dimensions["synthetic"].status == "indicators"
+
+
+def _mini_scenario(tmp_path, with_wav):
+    import json
+    import wave
+
+    import numpy as np
+
+    (tmp_path / "audio").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "mine.json").write_text(json.dumps({
+        "id": "mine", "title": "Mine", "summary": "s", "voice_kind": "unknown", "audio": None, "duration": 8,
+        "expected": {"max_level": "low", "pings": 0, "note": ""},
+        "events": [{"t": 1, "type": "transcript", "speaker": "caller", "text": "Hello there."}]}), encoding="utf-8")
+    if with_wav:
+        x = (np.random.default_rng(1).normal(0, 0.05, 16000 * 6) * 32767).astype("<i2")
+        with wave.open(str(tmp_path / "audio" / "mine.wav"), "wb") as wf:
+            wf.setnchannels(1), wf.setsampwidth(2), wf.setframerate(16000), wf.writeframes(x.tobytes())
+    return load_scenarios(tmp_path)["mine"]
+
+
+def test_dropping_in_a_recording_makes_the_detectors_analyse_it_for_real(tmp_path):
+    from app.voice_analysis import SpliceHeuristic
+
+    sc = _mini_scenario(tmp_path, with_wav=True)
+    assert sc.public()["audio_kind"] == "user" and sc.public()["has_audio"]
+    s = CallSession(load_rules(), DetectorRegistry(manipulation=SpliceHeuristic()), UnavailableTranscriber())
+    msgs = run_sync(s, sc)
+    real = [m["result"] for m in msgs if m["type"] == "voice" and m["result"]["source"] == "real"]
+    assert real  # the detector really ran on the supplied audio, it did not say "no audio"
+    assert not any(m["result"]["status"] == "no_audio" for m in msgs if m["type"] == "voice" and m["result"]["dimension"] == "manipulation")
+
+
+def test_scenario_without_a_recording_reports_the_no_audio_source(tmp_path):
+    sc = _mini_scenario(tmp_path, with_wav=False)
+    assert sc.public()["audio_kind"] == "none"
+    s = CallSession(load_rules(), DetectorRegistry(), UnavailableTranscriber())
+    msgs = run_sync(s, sc)
+    voices = [m["result"] for m in msgs if m["type"] == "voice"]
+    assert voices and all(v["status"] == "no_audio" and v["source"] == "no_audio" for v in voices)
+    last = [m for m in msgs if m["type"] == "risk"][-1]["assessment"]["dimensions"]
+    assert last["synthetic"]["source"] == "no_audio" and last["manipulation"]["source"] == "no_audio"

@@ -4,7 +4,7 @@
   "title": "Manipulated / edited audio",
   "summary": "A benign delivery message whose audio was edited: two recordings with different background noise are joined at about 00:10.",
   "voice_kind": "synthetic-tts",
-  "voice_note": "The clip was built for this demo by joining two text-to-speech segments with different noise floors. The manipulation indicator is scenario-injected (simulated). With TRINETRA_EXPERIMENTAL_SPLICE=1 the experimental noise-floor check also analyses the clip for real.",
+  "voice_note": "The clip was built for this demo by joining two text-to-speech segments with different noise floors. The manipulation indicator is scenario-injected (simulated). The experimental noise-floor check also analyses the clip for real and is shown separately as experimental.",
   "audio": "manipulated_splice.wav",
   "duration": 23,
   "expected": {

@@ -7,7 +7,8 @@ Honesty rules, enforced here:
 * If no real detector is installed the result is status="unavailable" with score=None. No numbers
   are invented. The demo's scripted scenarios inject separately-labelled *simulated* results.
 * Heuristics are never presented as trained models. The only built-in heuristic (splice check) is
-  marked experimental, has capped confidence, and is OFF unless TRINETRA_EXPERIMENTAL_SPLICE=1.
+  marked experimental, has capped confidence, needs agreement across windows, and never changes the risk level
+  (see voice.experimental_can_raise_level). Set TRINETRA_EXPERIMENTAL_SPLICE=0 to switch it off.
 * The two detectors never read each other's output.
 """
 from __future__ import annotations
@@ -63,6 +64,8 @@ class SpliceHeuristic:
     name = "experimental-pause-noise-step"
     available = True
     MAX_CONFIDENCE = 0.4
+    needs_smoothing = True  # a single window is not enough: live noise changes constantly
+    smoothing = (2, 2)  # (windows needed before reporting, windows that must agree)
     FRAMES_PER_RUN = 30  # a "steady pause" lasts at least 300 ms
     FLAT_DB = 6.0  # level may vary by less than this within a steady pause
     LIMITATIONS = [
@@ -138,7 +141,7 @@ class DetectorRegistry:
         self.manipulation: Detector = manipulation or UnavailableDetector(
             "manipulation",
             "No voice-manipulation model is available.",
-            "Set TRINETRA_EXPERIMENTAL_SPLICE=1 to enable the experimental noise-floor check.",
+            "The experimental pause-noise check is switched off (TRINETRA_EXPERIMENTAL_SPLICE=0). Remove that setting to enable it.",
         )
 
     @classmethod
@@ -150,7 +153,8 @@ class DetectorRegistry:
             synthetic = AasistDetector.try_load()
         except Exception:  # noqa: BLE001 - any failure means "unavailable", never a crash
             synthetic = None
-        manipulation = SpliceHeuristic() if os.environ.get("TRINETRA_EXPERIMENTAL_SPLICE") == "1" else None
+        # On by default as an EXPERIMENT: results are labelled experimental and do not drive alerts.
+        manipulation = None if os.environ.get("TRINETRA_EXPERIMENTAL_SPLICE") == "0" else SpliceHeuristic()
         return cls(synthetic, manipulation)
 
     def status(self) -> dict[str, dict]:

@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from .config import LEVELS, level_rank
-from .models import Assessment, DimensionState, Finding, VoiceResult, SRC_SIMULATED, SRC_UNAVAILABLE
+from .models import Assessment, DimensionState, Finding, VoiceResult, SRC_NO_AUDIO, SRC_SIMULATED, SRC_UNAVAILABLE
 
 CATEGORY_NAMES = {
     "credential_request": "a request for a one-time code, PIN or password",
@@ -51,7 +51,7 @@ class RiskEngine:
 
     def add_voice(self, result: VoiceResult) -> None:
         prev = self.voice[result.dimension]
-        if result.status == "unavailable" and prev is not None and prev.status != "unavailable":
+        if result.status in ("unavailable", "no_audio") and prev is not None and prev.status not in ("unavailable", "no_audio"):
             return  # "no detector" must never erase evidence that already exists (e.g. scenario-injected)
         self.voice[result.dimension] = result
         self.voice_history[result.dimension].append(result)
@@ -82,6 +82,8 @@ class RiskEngine:
         latest = self.voice[dim]
         if latest is None:
             return None, DimensionState(None, "unavailable", SRC_UNAVAILABLE, "Not analysed"), None
+        if latest.status == "no_audio":
+            return None, DimensionState(None, "no_audio", SRC_NO_AUDIO, "Not analysed: no audio", latest.method), latest
         if latest.status == "unavailable":
             return None, DimensionState(None, "unavailable", SRC_UNAVAILABLE, "Detector unavailable", latest.method), latest
         # strongest recent indicator, decayed; a later 'clear' result does not erase it instantly
@@ -163,7 +165,12 @@ class RiskEngine:
         for dim, state, res in (("synthetic", syn_state, syn_r), ("manipulation", man_state, man_r)):
             if state.status == "indicators" and res is not None:
                 name = "Synthetic-speech indicators" if dim == "synthetic" else "Voice-manipulation indicators"
-                reasons.append(f"{name} present ({res.source}). This is not proof of fraud on its own.")
+                informational = bool(res.experimental) and not vcfg.get("experimental_can_raise_level", False)
+                reasons.append(
+                    f"{name} present ({res.source}). "
+                    + ("Experimental check, shown for information only: it does not change the risk level."
+                       if informational else "This is not proof of fraud on its own.")
+                )
                 evidence.append(
                     {
                         "kind": "voice",
@@ -177,7 +184,7 @@ class RiskEngine:
                         "limitations": res.limitations,
                     }
                 )
-                if state.value is not None and state.value >= vcfg["indicator_threshold"]:
+                if not informational and state.value is not None and state.value >= vcfg["indicator_threshold"]:
                     voice_strong = True
 
         if scam_score < rules["levels"]["elevated"]:
@@ -191,7 +198,9 @@ class RiskEngine:
             reasons.append("Voice indicators corroborate the conversational warning (raised one level; reported separately).")
 
         # uncertainty notes --------------------------------------------------------------
-        if syn_state.status == "unavailable" and man_state.status == "unavailable":
+        if syn_state.status == "no_audio" and man_state.status == "no_audio":
+            uncertainty.append("This scenario has no audio, so the voice detectors were not run; assessment is based on conversation content only.")
+        elif syn_state.status == "unavailable" and man_state.status == "unavailable":
             uncertainty.append("Voice detectors are unavailable or not running; assessment is based on conversation content only.")
         elif syn_state.status == "unavailable":
             uncertainty.append("Synthetic-speech detector unavailable.")
@@ -252,9 +261,11 @@ def _voice_authenticity(syn: DimensionState, man: DimensionState) -> str:
         return "Synthetic-speech indicators"
     if man.status == "indicators":
         return "Manipulation indicators"
+    if syn.status == "no_audio" and man.status == "no_audio":
+        return "Inconclusive (no audio to analyse)"
     if syn.status == "unavailable" and man.status == "unavailable":
         return "Inconclusive (no detector running)"
-    if syn.status in ("inconclusive", "unavailable") or man.status in ("inconclusive", "unavailable"):
+    if syn.status in ("inconclusive", "unavailable", "no_audio") or man.status in ("inconclusive", "unavailable", "no_audio"):
         return "Inconclusive"
     return "No indicators detected"
 

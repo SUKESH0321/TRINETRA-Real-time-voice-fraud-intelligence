@@ -38,6 +38,8 @@ def clean_transcript(text: str) -> str:
 
 
 class CallSession:
+    SMOOTHING_MAX_AGE_S = 8.0  # per-window detector results older than this (audio seconds) are forgotten
+
     def __init__(
         self,
         rules: dict[str, Any] | None = None,
@@ -165,11 +167,14 @@ class CallSession:
         self.engine.add_voice(result)
         self._emit(msgs, {"type": "voice", "result": result.to_dict()})
         key = f"{result.status}:{result.source}"
-        if self._voice_status.get(result.dimension) != key and result.status in ("indicators", "unavailable"):
+        if self._voice_status.get(result.dimension) != key and result.status in ("indicators", "unavailable", "no_audio"):
             name = "Synthetic-speech" if result.dimension == "synthetic" else "Voice-manipulation"
             if result.status == "indicators":
                 title = f"{name} indicators"
                 level = "elevated"
+            elif result.status == "no_audio":
+                title = f"{name} not analysed (no audio in this scenario)"
+                level = "low"
             else:
                 title = f"{name} detector unavailable"
                 level = "low"
@@ -343,7 +348,7 @@ class CallSession:
                          (self.registry.manipulation, detect_voice_manipulation(w, self.registry))):
             res.t = round(w.t_end, 2)
             if getattr(det, "needs_smoothing", False):
-                res = self._smooth(res)
+                res = self._smooth(res, *getattr(det, "smoothing", (3, 3)))
             out.append(res)
         return out
 
@@ -360,6 +365,8 @@ class CallSession:
         if res.status not in ("indicators", "clear") or res.score is None:
             return res
         recent = self._recent[res.dimension]
+        while recent and res.t - recent[0].t > self.SMOOTHING_MAX_AGE_S:  # old windows no longer count (time, not count)
+            recent.popleft()
         recent.append(res)
         if len(recent) < min_windows:
             return VoiceResult(res.dimension, "inconclusive", None, 0.0,

@@ -10,6 +10,7 @@ SRC_SCRIPTED = "scripted"      # transcript line injected by a demo scenario
 SRC_SIMULATED = "simulated"    # voice evidence injected by a demo scenario (NOT a detector output)
 SRC_MANUAL = "manual"          # typed in by the user
 SRC_UNAVAILABLE = "unavailable"
+SRC_NO_AUDIO = "no_audio"     # nothing to analyse: the scenario has no audio clip (the detector itself may be fine)
 
 
 @dataclass

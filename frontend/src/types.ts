@@ -1,5 +1,5 @@
 export type Level = "low" | "elevated" | "high" | "critical";
-export type Source = "real" | "scripted" | "simulated" | "manual" | "unavailable";
+export type Source = "real" | "scripted" | "simulated" | "manual" | "unavailable" | "no_audio";
 export type CallMode = "idle" | "scenario" | "live-mic" | "webrtc";
 export type CallStateName = "idle" | "running" | "ended";
 
@@ -31,7 +31,7 @@ export interface Finding {
 
 export interface VoiceResult {
   dimension: "synthetic" | "manipulation";
-  status: "unavailable" | "inconclusive" | "clear" | "indicators";
+  status: "unavailable" | "no_audio" | "inconclusive" | "clear" | "indicators";
   score: number | null;
   confidence: number;
   evidence: string[];
@@ -128,6 +128,7 @@ export interface ScenarioInfo {
   voice_note: string;
   duration: number;
   has_audio: boolean;
+  audio_kind?: "tts" | "user" | "none";
   audio_url: string | null;
   expected: { max_level: Level; pings: number; note: string; alert_at?: number };
   injected: { t: number; dimension: string; status: string; score?: number; evidence?: string[] }[];

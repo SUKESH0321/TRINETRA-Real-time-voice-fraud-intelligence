@@ -32,6 +32,7 @@ const SOURCE: Record<Source, { label: string; cls: string; title: string }> = {
   simulated: { label: "Simulated", cls: "border-dashed border-amber text-amber", title: "Injected by the demo scenario. NOT the output of a detector." },
   manual: { label: "Typed", cls: "border-rule text-ink-2", title: "Typed by the user in the manual transcript box." },
   unavailable: { label: "Unavailable", cls: "border-rule text-ink-2 italic", title: "No detector is installed for this signal." },
+  no_audio: { label: "No audio", cls: "border-rule text-ink-2", title: "This scenario has no audio clip, so there was nothing for the detector to analyse." },
 };
 
 /** Provenance tag. Dashed outline = not a real detection. */

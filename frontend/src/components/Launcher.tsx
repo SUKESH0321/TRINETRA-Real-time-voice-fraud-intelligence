@@ -156,7 +156,7 @@ export function Launcher(p: Props) {
                   <h3 className="row-title display text-[clamp(30px,3.4vw,44px)]">{s.title.replace(/^Bonus:\s*/, "")}</h3>
                   <p className="mt-2 max-w-[58ch] text-[15px] text-ink-2">{s.summary}</p>
                   <dl className="mono mt-4 flex flex-wrap gap-x-7 gap-y-1.5 text-[12px]">
-                    <div><dt className="inline text-ink-2">Audio </dt><dd className="inline">{s.has_audio ? "bundled TTS clip" : "transcript only"}</dd></div>
+                    <div><dt className="inline text-ink-2">Audio </dt><dd className="inline">{s.audio_kind === "user" ? "your recording" : s.has_audio ? "bundled TTS clip" : "transcript only"}</dd></div>
                     <div><dt className="inline text-ink-2">Expect </dt><dd className={cx("inline font-medium", LEVEL_STYLE[lvl].text)}>{LEVEL_LABEL[lvl]}</dd>
                       <dd className="inline"> · {s.expected.pings} ping{s.expected.pings === 1 ? "" : "s"}{s.expected.alert_at ? ` · warning at ${fmtClock(s.expected.alert_at)}` : ""}</dd></div>
                     {s.injected.length > 0 && <div><dt className="inline text-amber">Simulated </dt><dd className="inline">{s.injected.map((e) => `${e.dimension} ${fmtClock(e.t)}`).join(", ")}</dd></div>}

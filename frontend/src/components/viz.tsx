@@ -16,7 +16,7 @@ function arc(a: number, b: number, r = R): string {
   if (b - a < 0.0005) return "";
   const [x1, y1] = pt(a, r);
   const [x2, y2] = pt(b, r);
-  return `M${x1.toFixed(2)} ${y1.toFixed(2)}A${r} ${r} 0 ${b - a > 0.5 ? 1 : 0} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+  return `M${x1.toFixed(2)} ${y1.toFixed(2)}A${r} ${r} 0 0 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
 }
 
 /** Semicircular gauge. The needle and arc ease to the score; the coloured bands are the configured thresholds. */
@@ -30,7 +30,7 @@ export function RiskDial({ score, level, thresholds }: { score: number; level: L
   ];
   const color = LEVEL_COLOR[level];
   return (
-    <svg viewBox="0 0 260 176" role="meter" aria-valuemin={0} aria-valuemax={1} aria-valuenow={score} aria-label="Conversation risk score" className="block w-full max-w-[340px]">
+    <svg viewBox="-10 -6 280 188" overflow="visible" role="meter" aria-valuemin={0} aria-valuemax={1} aria-valuenow={score} aria-label="Conversation risk score" className="block w-full max-w-[340px]">
       {bands.map(([a, b, c, o], i) => <path key={i} d={arc(a + 0.004, b - 0.004)} fill="none" stroke={c} strokeOpacity={o} strokeWidth="12" />)}
       <path d={arc(0, v)} fill="none" stroke={color} strokeWidth="12" style={{ filter: `drop-shadow(0 0 7px ${color})`, transition: "stroke .5s" }} />
       {Array.from({ length: 21 }, (_, i) => {
@@ -96,9 +96,9 @@ const AXES = [-90, 30, 150].map((deg) => (deg * Math.PI) / 180);
 const RR = 78;
 const at = (axis: number, v: number) => [Math.cos(AXES[axis]) * RR * v, Math.sin(AXES[axis]) * RR * v] as const;
 
-export function SignalRadar({ values, level }: {
+export function SignalRadar({ values, level, naText = ["unavailable", "unavailable", "unavailable"] }: {
   /** 0..1, or null when that signal has no detector. The three are shown side by side, never combined. */
-  values: [number | null, number | null, number | null]; level: Level;
+  values: [number | null, number | null, number | null]; level: Level; naText?: [string, string, string];
 }) {
   const v0 = useTween(values[0] ?? 0, 800), v1 = useTween(values[1] ?? 0, 800), v2 = useTween(values[2] ?? 0, 800);
   const vs = [v0, v1, v2];
@@ -125,7 +125,7 @@ export function SignalRadar({ values, level }: {
       {labels.map(([name, n, anchor, lx, ly], i) => (
         <text key={n} x={lx} y={ly} textAnchor={anchor} fontFamily="var(--font-mono)" fontSize="8.5" letterSpacing="1" fill="var(--ink)">
           <tspan fill="var(--ink-2)">{n} </tspan>{name}
-          <tspan x={lx} dy="11" fill="var(--ink-2)" fontSize="8">{values[i] === null ? "unavailable" : `${Math.round((values[i] as number) * 100)}%`}</tspan>
+          <tspan x={lx} dy="11" fill="var(--ink-2)" fontSize="8">{values[i] === null ? naText[i] : `${Math.round((values[i] as number) * 100)}%`}</tspan>
         </text>
       ))}
     </svg>

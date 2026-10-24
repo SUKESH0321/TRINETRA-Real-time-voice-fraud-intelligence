@@ -6,6 +6,7 @@ import { Backdrop } from "./components/Backdrop";
 import { EdgeGlow, EyeMark, Spotlight } from "./components/fx";
 import { AlertEngine } from "./lib/alerts";
 import { useCall } from "./lib/useCall";
+import { useHealth } from "./lib/useHealth";
 import { useSession } from "./lib/useSession";
 import type { ScenarioInfo } from "./types";
 
@@ -18,6 +19,7 @@ export default function App() {
   const status = useSyncExternalStore(subscribe, () => engine.status);
   const { state, dispatch, send, sendAudio, setQuiet } = useSession(engine);
   const call = useCall({ send, sendAudio, dispatch });
+  const { health, retryTranscription } = useHealth(state.conn === "open");
   const [quiet, setQuietState] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [visualOnly, setVisualOnly] = useState(false);
@@ -34,6 +36,8 @@ export default function App() {
 
   const thresholds = rules?.levels ?? DEFAULT_THRESHOLDS;
   const active = state.call.state !== "idle";
+  // While a call runs the session reports the live state; otherwise the health endpoint does.
+  const asr = active ? state.transcription ?? health?.transcription : health?.transcription ?? state.caps?.transcription;
   const level = active ? state.assessment?.level ?? "low" : "low";
 
   const startScenario = (s: ScenarioInfo) => { setLastScenario(s); void call.startScenario(s, speed); };
@@ -70,6 +74,7 @@ export default function App() {
             onBack={home}
             onDismiss={() => dispatch({ type: "dismiss-alert" })}
             onManual={(speaker, text) => send({ type: "manual_transcript", speaker, text })}
+            asr={asr} onRetryAsr={() => void retryTranscription()} conn={state.conn}
           />
         ) : (
           <Launcher
@@ -77,7 +82,7 @@ export default function App() {
             scenarios={state.scenarios} caps={state.caps} conn={state.conn} speed={speed} onSpeed={setSpeed}
             onStart={startScenario} onMic={() => void call.startMic()}
             onRtc={(role, room, source, clip) => void call.startRtcCall(role, room, source, clip)}
-            rtcPhase={call.rtcPhase} notice={call.notice}
+            rtcPhase={call.rtcPhase} notice={call.notice} asr={asr} onRetryAsr={() => void retryTranscription()}
           />
         )}
       </main>

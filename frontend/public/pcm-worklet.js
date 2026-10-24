@@ -1,29 +1,38 @@
-// AudioWorklet: converts any input to mono 16 kHz PCM16 and posts ~100 ms chunks to the main thread.
+// AudioWorklet: converts the browser's native audio (usually 44.1 or 48 kHz) to mono 16 kHz PCM16
+// and posts ~100 ms chunks (3200 bytes, little-endian signed 16-bit) to the main thread.
+//
+// Resampling is a fractional box average: every output sample is the mean of the input samples it
+// covers. That is a real (if simple) low-pass, so energy above 8 kHz is attenuated instead of folding
+// back into the speech band, which plain sample-picking would do.
 class PcmCapture extends AudioWorkletProcessor {
   constructor() {
     super();
-    this.ratio = sampleRate / 16000;
-    this.pos = 0;
+    this.ratio = sampleRate / 16000; // input samples per output sample
+    this.acc = 0;
+    this.need = this.ratio; // input samples still needed to complete the current output sample
     this.out = [];
-    this.prev = 0;
   }
+
   process(inputs) {
     const ch = inputs[0] && inputs[0][0];
     if (!ch) return true;
-    // linear-interpolation downsample to 16 kHz
-    for (; this.pos < ch.length; this.pos += this.ratio) {
-      const i = Math.floor(this.pos);
-      const frac = this.pos - i;
-      const a = i === 0 ? ch[0] : ch[i];
-      const b = i + 1 < ch.length ? ch[i + 1] : ch[i];
-      this.out.push(a + (b - a) * frac);
+    for (let i = 0; i < ch.length; i++) {
+      const x = ch[i];
+      if (this.need >= 1) {
+        this.acc += x;
+        this.need -= 1;
+      } else {
+        this.acc += x * this.need;
+        this.out.push(this.acc / this.ratio);
+        this.acc = x * (1 - this.need);
+        this.need = this.ratio - (1 - this.need);
+      }
     }
-    this.pos -= ch.length;
     if (this.out.length >= 1600) {
       const pcm = new Int16Array(this.out.length);
       for (let i = 0; i < this.out.length; i++) {
         const s = Math.max(-1, Math.min(1, this.out[i]));
-        pcm[i] = s < 0 ? s * 32768 : s * 32767;
+        pcm[i] = s < 0 ? Math.round(s * 32768) : Math.round(s * 32767);
       }
       this.port.postMessage(pcm.buffer, [pcm.buffer]);
       this.out = [];

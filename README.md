@@ -31,7 +31,10 @@ Other commands:
 
 | Command | What it does |
 |---|---|
-| `npm run setup:ml` | Optional local ML: faster-whisper speech recognition + AASIST detector (~400 MB downloaded, runs on CPU) |
+| `npm run setup:asr` | **Live speech recognition**: installs faster-whisper, downloads the `base.en` model (~150 MB, once) and runs a real transcription self-test. CPU only |
+| `npm run setup:aasist` | Optional synthetic-voice detector: CPU PyTorch + the AASIST reference model (~250 MB). Independent of `setup:asr` |
+| `npm run setup:ml` | Both of the above |
+| `npm run check:asr` | Loads the speech model and transcribes a bundled spoken clip; prints exactly what is wrong if it cannot |
 | `npm start` | Builds the frontend and serves everything from one process on http://localhost:8000 |
 | `npm run dev:https` | Dev server with a self-signed certificate, so a phone on your Wi-Fi may use its microphone |
 | `npm test` | Backend (pytest) + frontend (vitest) tests |
@@ -39,12 +42,24 @@ Other commands:
 
 No `npm`? The backend alone is `backend/.venv/Scripts/python -m uvicorn app.main:app --app-dir backend` (macOS/Linux: `.venv/bin/python`).
 
-### Optional ML (`npm run setup:ml`)
+### Live transcription (`npm run setup:asr`)
 
-* **faster-whisper `base.en`** gives real local transcription of live audio (CPU, about 0.7 s per 5 s of audio; audio never leaves the machine). The model (~150 MB) is downloaded once from Hugging Face.
-* **AASIST** (NAVER Corp., MIT licence) is cloned to `backend/models/aasist` (the weights are in that repository) and runs on CPU PyTorch. It is a research model trained on ASVspoof 2019. **In this repo's own tests it is noisy**: it flags untouched TTS clips in some windows and not others, so TRINETRA requires agreement across several windows and labels its limits. Treat it as a demonstration of the plumbing, not as a dependable detector.
+Microphone and in-app-call transcripts come from **faster-whisper** running locally on the CPU (no GPU, no cloud, audio never leaves the machine).
 
-Without these the app still works fully; live transcription and the synthetic detector simply show **Unavailable**.
+```bash
+npm run setup:asr     # once, needs internet for the first model download
+npm run dev           # the backend loads the model in the background; the UI follows its state
+```
+
+* The default model is `base.en` (set `TRINETRA_WHISPER_MODEL` for another size). After the first download it is loaded from the local cache, so restarts never need the network. `TRINETRA_MODEL_DIR` chooses the cache folder; `TRINETRA_OFFLINE=1` forbids downloads.
+* The UI always shows the model's real state: **loading** (also while it downloads), **ready**, **transcribing**, **unavailable** or **error**, with the cause and the exact next step. If you install the model while the backend is already running, press **Retry** in the app (no restart needed).
+* Speech is transcribed as you talk: interim text appears after about 1 to 2 s ("Hearing…"), and a line becomes final (and is passed to the scam analysis) once two consecutive decodes agree, roughly 3 to 5 s after the sentence ends on a typical laptop CPU. Fragments are never analysed, so a half-heard sentence cannot raise a false alarm.
+
+### Synthetic-voice detector (`npm run setup:aasist`, optional)
+
+**AASIST** (NAVER Corp., MIT licence) is cloned to `backend/models/aasist` (the weights are in that repository) and runs on CPU PyTorch. It is a research model trained on ASVspoof 2019. **In this repo's own tests it is noisy**: it flags untouched TTS clips in some windows and not others, so TRINETRA requires agreement across several windows and labels its limits. Treat it as a demonstration of the plumbing, not as a dependable detector.
+
+Without these the app still works fully; live transcription and the synthetic detector simply show **Unavailable** (with the command to fix it).
 
 ---
 
@@ -74,7 +89,7 @@ Without these the app still works fully; live transcription and the synthetic de
 
 ### Live modes (experimental)
 
-* **Microphone analysis**: browser permission prompt, then your mic is analysed in overlapping 3 s windows (level meter shows the measured input). With the optional ML installed you also get local transcription; otherwise type what the caller says into the transcript box (labelled *Typed in*): the scam analysis is then real.
+* **Microphone analysis**: browser permission prompt, then your mic is analysed live. The page shows the measured input level, interim and final transcript text (labelled *Real*, with the model name), and a diagnostics line (audio received, level, lines recognised, last decode time). A silent microphone is reported as silence, not as a model failure. Without the speech model you can still type what the caller says into the transcript box (labelled *Typed in*); the scam analysis is then real.
 * **In-app call (two tabs or devices)**: open the app twice, same room code. One tab joins as **Callee** (it analyses what it hears), the other is the **Caller** and sends a bundled TTS clip or its microphone. Media flows peer to peer; the backend only relays signaling. Use headphones if both tabs use microphones. There is no STUN/TURN server, so it works on localhost and the same network.
 
 Phones need HTTPS to use the microphone: run `npm run dev:https` and open `https://<your-computer-ip>:5173` (accept the self-signed certificate warning).
@@ -110,7 +125,7 @@ backend/   Python + FastAPI + WebSockets
   app/audio_ingestion.py  validate/buffer audio (invalid, empty, wrong rate, silent, too short)
   app/voice_analysis.py   detect_synthetic_speech(), detect_voice_manipulation(), detector registry
   app/aasist_detector.py  optional pretrained synthetic-speech model
-  app/transcription.py    pluggable ASR: faster-whisper or "unavailable"
+  app/transcription.py    ASR: model lifecycle (loading/ready/unavailable/error), word-level decoding, streaming commit logic
   app/fraud_analysis.py   rule-based scam analysis (negation, safe context, evidence spans)
   app/risk_engine.py      separate scores -> overall level, reasons, uncertainty, action
   app/alert_manager.py    cooldown, dedupe, escalation, quiet mode
@@ -134,8 +149,8 @@ backend/   Python + FastAPI + WebSockets
 npm test
 ```
 
-* **Backend (pytest, 136 tests):** scam phrases and negation, risk thresholds, voice/scam separation, alert cooldown/escalation/dedupe/quiet mode, scenario expectations and replay determinism, WebSocket delivery, WebRTC signaling rooms, invalid/missing/silent audio, unavailable and crashing detectors/transcribers, transcript carry-over across windows, detector smoothing, and the bundled audio clips.
-* **Frontend (vitest, 28 tests):** audio blocked by browser policy, unsupported vibration, mute/quiet behaviour, microphone permission denial, insecure context, reducer behaviour, warning-card content.
+* **Backend (pytest, 160 tests):** scam phrases and negation, risk thresholds, voice/scam separation, alert cooldown/escalation/dedupe/quiet mode, scenario expectations and replay determinism, WebSocket delivery, WebRTC signaling rooms, PCM16 decoding and silence handling, detector smoothing, the bundled audio clips, and the transcription stack: model loading (cached, download, offline, missing package, failure and retry), streaming commits with overlapping decodes (no repeated text, interim text, pause and end-of-call flushing, bounded buffers), decoder failures, session isolation, batching, transcript-to-scam-analysis-to-alert integration, correct `real`/`scripted`/`manual` labels, the health/retry endpoints and a live WebSocket stream that flushes on stop. The speech model is mocked there; one extra test runs the **real** model on a bundled spoken clip when it is installed (it prints `[REAL MODEL ...]`) and is skipped otherwise.
+* **Frontend (vitest, 49 tests):** audio blocked by browser policy, unsupported vibration, mute/quiet behaviour, microphone permission denial, insecure context, reducer behaviour, warning-card content, transcription states (ready, transcribing, loading, unavailable, error, silence, stalled), interim and final transcript rendering, and the real AudioWorklet source run against 48, 44.1 and 32 kHz input (output length, frequency, amplitude, signed little-endian PCM16, clamping, attenuation above 8 kHz).
 * **Browser end-to-end** (manual, or scripted through the in-app browser during development): start each scenario at 4× speed and compare the timeline with the table above.
 
 ---
@@ -146,7 +161,7 @@ npm test
 * **Scam detection is rules, not machine learning.** It is English only, will miss paraphrases, and can false-alarm on unusual wording. Indian-language and code-switched speech are *not* supported yet (the analyzer and transcription layers are pluggable so they can be added and tested later).
 * **Synthetic-speech detection** is only as good as the optional AASIST model (trained on 2019 data, uncalibrated, weak on modern TTS and phone audio) and is *unavailable* otherwise. In the scenarios it is **simulated** unless you install it.
 * **Voice-manipulation detection is not a real model.** The only built-in check (enable with `TRINETRA_EXPERIMENTAL_SPLICE=1`) compares the noise level of different pauses. It was only verified on this repo's demo clips, fires on noise gates/AGC/fans, and says nothing without two steady pauses. It cannot detect voice conversion or identify a speaker.
-* **Live transcription** needs the optional model. Without it nothing is transcribed; use the typed transcript box. A request split across two 5 s windows is rejoined, but ASR errors can hide phrases.
+* **Live transcription** needs `npm run setup:asr`. Without it nothing is transcribed (the UI says why); use the typed transcript box. It is English only (`base.en`), a small CPU model that can mishear words, and finals lag the speech by a few seconds. Recognition and the AASIST detector compete for CPU on slow machines, so the voice detector skips windows when busy (the diagnostics line says so).
 * **WebRTC** has no STUN/TURN: same machine or same network only.
 * The warning card, sound and vibration are browser features. Vibration requires a supporting device (most desktops silently ignore it, shown as "Vibration unsupported" or "vibration sent" without effect).
 * Tuning values (weights, thresholds) were set by hand against the demo scenarios, not validated on real call data. No accuracy figures are claimed.
@@ -166,7 +181,12 @@ npm test
 | In-app call stuck on "Waiting for the other tab" | Both tabs need the same room code, one Callee and one Caller, and the same network. A third tab gets "room full" |
 | Demo clip is silent | The browser blocked autoplay: click the page, then **Replay scenario** |
 | `Library cublas64_12.dll is not found` | Whisper runs on CPU by default (`TRINETRA_WHISPER_DEVICE=cpu`); only set `cuda` if CUDA 12 libraries are installed |
-| `setup:ml` model download fails | Offline or blocked: the app keeps working with transcription/AASIST shown as Unavailable |
+| "Local transcription model is not installed" / Transcription unavailable | Run `npm run setup:asr`, then press **Retry** in the app (or restart the backend). The message in the app shows the exact cause |
+| Transcription says **error** (download failed) | The first run needs internet to fetch the model. Connect, press **Retry** or re-run `npm run setup:asr`. Set `TRINETRA_MODEL_DIR` if the default cache folder is not writable |
+| `setup:asr` fails installing faster-whisper | Usually an unsupported Python (3.14 may lack wheels). Delete `backend/.venv`, re-run `npm run setup` (uv installs Python 3.12), then `npm run setup:asr` |
+| "No speech detected" | The microphone signal is silent: check the OS input device and level. This is not a model failure |
+| "Audio is arriving but nothing has been recognised" | The model is slow or stuck: check the backend log and the diagnostics line (last decode time) |
+| `setup:aasist` fails | AASIST is optional; the app keeps working with the synthetic detector shown as Unavailable |
 | Changed scenarios or rules not applied | Restart the backend |
 
 ---

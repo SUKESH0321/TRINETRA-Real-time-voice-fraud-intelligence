@@ -6,7 +6,10 @@
   "description": "TRINETRA: real-time voice fraud intelligence (hackathon prototype)",
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "setup:asr": "node scripts/setup.mjs --asr",
+    "setup:aasist": "node scripts/setup.mjs --aasist",
     "setup:ml": "node scripts/setup.mjs --ml",
+    "check:asr": "node scripts/run-backend.mjs --check-asr",
     "dev": "node scripts/dev.mjs",
     "dev:https": "node scripts/dev.mjs --https",
     "build": "npm --prefix frontend run build",

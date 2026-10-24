@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { Assessment, DimensionState, Finding, Level, TimelineEntry, TranscriptLine, VoiceResult } from "../types";
+import type { Assessment, DimensionState, Finding, Level, TimelineEntry, TranscriptionStatus, TranscriptLine, VoiceResult } from "../types";
 import { fmtClock } from "../lib/store";
 import { RiskDial, SignalRadar, Sparkline } from "./viz";
 import { Btn, Card, cx, Highlighted, LEVEL_LABEL, LEVEL_STYLE, Meter, SourceBadge } from "./ui";
@@ -108,15 +108,44 @@ export function Indicators({ a, voice, findings }: {
 }
 
 /* ---------------------------------------------------------------- Transcript */
-export function TranscriptPanel({ lines, findings, caps, onSend, canSend, status }: {
+const ASR_LABEL: Record<string, string> = {
+  idle: "not started", loading: "loading speech model…", ready: "ready", transcribing: "transcribing…", unavailable: "unavailable", error: "error",
+};
+
+/** What the speech recogniser is really doing, with the next step when it cannot work. */
+export function AsrNotice({ asr, onRetry, live }: { asr: TranscriptionStatus | undefined; onRetry?: () => void; live: boolean }) {
+  if (!asr) return null;
+  const d = asr.diag;
+  const bad = asr.state === "unavailable" || asr.state === "error";
+  const silent = live && asr.state !== "unavailable" && !!d && d.audio_s >= 4 && d.quiet_s >= 4;
+  const stuck = live && asr.state === "ready" && !!d && d.audio_s >= 8 && d.decodes === 0 && !silent;
+  if (!bad && asr.state !== "loading" && !silent && !stuck) return null;
+  return (
+    <div role="status" data-testid="asr-notice" data-state={asr.state} className="mt-3 border-l-[3px] border-amber py-1 pl-4 text-[13px]">
+      {asr.state === "loading" && <p>{asr.detail || "Loading the local speech model…"}</p>}
+      {bad && (
+        <>
+          <p className="font-medium text-ink">{asr.detail}</p>
+          {asr.action && <p className="mt-0.5 text-ink-2">{asr.action}</p>}
+          {asr.cause && <p className="mono mt-1 break-all text-[11px] text-ink-2">{asr.cause}</p>}
+          {onRetry && <Btn className="mt-2 !min-h-8 !px-3 !text-[13px]" onClick={onRetry}>Retry</Btn>}
+        </>
+      )}
+      {silent && !bad && <p>No speech detected: the microphone signal has been silent for {Math.round(d!.quiet_s)} s. This is not a model failure. Check the input level and that the right microphone is selected.</p>}
+      {stuck && <p>Audio is arriving ({d!.audio_s.toFixed(0)} s) but nothing has been recognised yet. Keep speaking, or check the backend log.</p>}
+    </div>
+  );
+}
+
+export function TranscriptPanel({ lines, findings, asr, partial, onRetry, onSend, canSend, status, live }: {
   lines: TranscriptLine[]; findings: Finding[];
-  caps: { state: string; detail: string; name: string } | undefined;
+  asr: TranscriptionStatus | undefined; partial: string; onRetry?: () => void; live: boolean;
   onSend?: (speaker: "caller" | "you", text: string) => void; canSend: boolean; status: "idle" | "running" | "ended";
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [text, setText] = useState("");
   const [speaker, setSpeaker] = useState<"caller" | "you">("caller");
-  useEffect(() => { box.current?.scrollTo({ top: box.current.scrollHeight, behavior: "smooth" }); }, [lines.length]);
+  useEffect(() => { box.current?.scrollTo?.({ top: box.current.scrollHeight, behavior: "smooth" }); }, [lines.length, partial]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -124,12 +153,13 @@ export function TranscriptPanel({ lines, findings, caps, onSend, canSend, status
     onSend(speaker, text.trim());
     setText("");
   };
+  const d = asr?.diag;
+  const label = asr ? (asr.state === "ready" || asr.state === "transcribing" ? `${ASR_LABEL[asr.state]}${asr.name && asr.name !== "none" ? ` · ${asr.name}` : ""}` : ASR_LABEL[asr.state]) : "unknown";
 
   return (
-    <Card title="Transcript" right={<span data-testid="transcription-status">
-      Live transcription · {caps?.state === "ready" ? `local model (${caps.name})` : "unavailable"}</span>}>
+    <Card title="Transcript" right={<span data-testid="transcription-status" data-state={asr?.state ?? "unknown"}>Live transcription · {label}</span>}>
       <div ref={box} className="max-h-80 min-h-28 overflow-y-auto pr-2" data-testid="transcript">
-        {lines.length === 0 && (
+        {lines.length === 0 && !partial && (
           <p className="text-[14px] text-ink-2">
             {status === "running" ? <>Waiting for speech<span className="inline-flex w-6 gap-0.5 pl-1"><i className="live-dot !h-1 !w-1" /><i className="live-dot !h-1 !w-1" /><i className="live-dot !h-1 !w-1" /></span></> : "Transcript appears here during a call."}
           </p>
@@ -138,20 +168,32 @@ export function TranscriptPanel({ lines, findings, caps, onSend, canSend, status
           const f = findings.filter((x) => x.t === l.t && l.text.includes(x.excerpt));
           const spans: [number, number][] = f.flatMap((x) => { const o = l.text.indexOf(x.excerpt); return x.spans.map(([a, b]) => [a + o, b + o] as [number, number]); });
           return (
-            <div key={l.id} className="anim-line grid grid-cols-[64px_1fr] gap-x-4 border-t border-rule py-3 first:border-t-0 first:pt-0">
+            <div key={l.id} className="anim-line grid grid-cols-[64px_1fr] gap-x-4 border-t border-rule py-3 first:border-t-0 first:pt-0" data-testid="transcript-line" data-source={l.source}>
               <div>
                 <p className="mono text-[12px]">{fmtClock(l.t)}</p>
                 <p className={cx("eyebrow mt-0.5", l.speaker === "caller" ? "!text-ink" : "")}>{l.speaker === "caller" ? "Caller" : "You"}</p>
               </div>
               <div>
                 <p className={cx("text-[16px] leading-snug", l.speaker === "you" && "text-ink-2")}><Highlighted text={l.text} spans={spans} /></p>
-                <SourceBadge source={l.source} className="mt-1.5" />
+                <div className="mt-1.5 flex items-center gap-2"><SourceBadge source={l.source} />{l.method && l.source === "real" && <span className="mono text-[10px] text-ink-2">{l.method}</span>}</div>
               </div>
             </div>
           );
         })}
+        {partial && (
+          <div className="grid grid-cols-[64px_1fr] gap-x-4 border-t border-rule py-3" data-testid="transcript-partial">
+            <div><p className="eyebrow">Hearing</p></div>
+            <p className="text-[16px] italic leading-snug text-ink-2">{partial}<span className="inline-flex w-6 gap-0.5 pl-1 align-middle"><i className="live-dot !h-1 !w-1" /><i className="live-dot !h-1 !w-1" /></span></p>
+          </div>
+        )}
       </div>
-      {caps?.state !== "ready" && canSend && <p className="mt-3 text-[13px] text-ink-2">{caps?.detail}</p>}
+      <AsrNotice asr={asr} onRetry={onRetry} live={live} />
+      {live && d && (
+        <p className="mono mt-3 text-[11px] text-ink-2" data-testid="asr-diag">
+          audio {d.audio_s.toFixed(1)} s · level {d.rms.toFixed(3)} · recognised {d.finals} line{d.finals === 1 ? "" : "s"} · last decode {d.decode_ms} ms · buffer {d.buffer_s.toFixed(1)} s
+          {d.windows_skipped > 0 ? ` · ${d.windows_skipped} voice windows skipped (busy)` : ""}
+        </p>
+      )}
       {canSend && (
         <form onSubmit={submit} className="mt-4 flex flex-wrap items-end gap-3">
           <label className="w-36 shrink-0">
@@ -161,7 +203,7 @@ export function TranscriptPanel({ lines, findings, caps, onSend, canSend, status
             </select>
           </label>
           <label className="min-w-0 flex-1">
-            <span className="eyebrow">What was said</span>
+            <span className="eyebrow">What was said (optional)</span>
             <input value={text} onChange={(e) => setText(e.target.value)} placeholder="“Please tell me your OTP”" aria-label="Manual transcript text" className="field" />
           </label>
           <Btn type="submit" variant="primary" disabled={!text.trim()}>Analyse</Btn>
@@ -176,7 +218,7 @@ const KIND_LABEL: Record<TimelineEntry["kind"], string> = { call: "Call", findin
 
 export function Timeline({ entries }: { entries: TimelineEntry[] }) {
   const box = useRef<HTMLOListElement>(null);
-  useEffect(() => { box.current?.scrollTo({ top: box.current.scrollHeight, behavior: "smooth" }); }, [entries.length]);
+  useEffect(() => { box.current?.scrollTo?.({ top: box.current.scrollHeight, behavior: "smooth" }); }, [entries.length]);
   return (
     <Card title="Evidence timeline" right={<span>{entries.length} events</span>}>
       <ol ref={box} className="max-h-96 min-h-28 overflow-y-auto pr-2" data-testid="timeline">

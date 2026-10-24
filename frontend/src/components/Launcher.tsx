@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import type { AlertEngine, AlertStatus } from "../lib/alerts";
 import { fmtClock } from "../lib/store";
 import type { Role, RtcPhase } from "../lib/webrtc";
-import type { Capabilities, Level, ScenarioInfo } from "../types";
+import type { Capabilities, Level, ScenarioInfo, TranscriptionStatus } from "../types";
 import { CountUp, EyeMark, Marquee, Reveal, Scramble } from "./fx";
 import { Btn, cx, LEVEL_LABEL, LEVEL_STYLE } from "./ui";
 
@@ -21,6 +21,8 @@ interface Props {
   onRtc: (role: Role, room: string, source: "mic" | "clip", clip?: ScenarioInfo) => void;
   rtcPhase: RtcPhase | null;
   notice: string | null;
+  asr: TranscriptionStatus | undefined;
+  onRetryAsr: () => void;
 }
 
 const PHASE_TEXT: Record<RtcPhase, string> = {
@@ -186,17 +188,25 @@ function LiveSection(p: Props & { ready: boolean; connOk: boolean }) {
   const clips = p.scenarios.filter((s) => s.has_audio);
   const [clipId, setClipId] = useState("synthetic-relative-scam");
   const clip = clips.find((c) => c.id === clipId) ?? clips[0];
-  const tx = p.caps?.transcription;
+  const tx = p.asr ?? p.caps?.transcription;
   const det = p.caps?.detectors;
 
   return (
     <Section id="live" n="03 — Live" title="Live analysis"
       aside={<span className="eyebrow">Experimental</span>}>
       <dl className="mono grid gap-x-8 gap-y-2 border-b border-ink pb-5 text-[12px] sm:grid-cols-3">
-        <div><dt className="text-ink-2">Transcription</dt><dd>{tx?.state === "ready" ? `local model (${tx.name})` : "unavailable"}</dd></div>
+        <div data-testid="launcher-asr" data-state={tx?.state ?? "unknown"}><dt className="text-ink-2">Transcription</dt><dd>{tx?.state === "ready" ? `ready · ${tx.name}` : tx?.state === "loading" ? "loading speech model…" : tx?.state === "error" ? "error" : "unavailable"}</dd></div>
         <div><dt className="text-ink-2">Synthetic detector</dt><dd>{det?.synthetic.available ? det.synthetic.name : "unavailable"}</dd></div>
         <div><dt className="text-ink-2">Manipulation detector</dt><dd>{det?.manipulation.available ? `${det.manipulation.name}${det.manipulation.experimental ? " (experimental)" : ""}` : "unavailable"}</dd></div>
       </dl>
+      {tx && (tx.state === "unavailable" || tx.state === "error" || tx.state === "loading") && (
+        <div role="status" className="mt-5 border-l-[3px] border-amber py-1 pl-4 text-[13px]" data-testid="launcher-asr-notice">
+          <p className="font-medium">{tx.state === "loading" ? tx.detail || "Loading the local speech model…" : tx.detail}</p>
+          {tx.action && <p className="mt-0.5 text-ink-2">{tx.action}</p>}
+          {tx.cause && <p className="mono mt-1 break-all text-[11px] text-ink-2">{tx.cause}</p>}
+          {tx.state !== "loading" && <Btn className="mt-2 !min-h-8 !px-3 !text-[13px]" onClick={p.onRetryAsr}>Retry</Btn>}
+        </div>
+      )}
       <div className="grid gap-x-14 gap-y-10 pt-8 lg:grid-cols-2">
         <div>
           <h3 className="display text-[30px]">Microphone analysis</h3>

@@ -61,7 +61,7 @@ class AasistDetector:
         model = module.Model(cfg)
         model.load_state_dict(torch.load(weights, map_location="cpu"))
         model.eval()
-        torch.set_num_threads(max(1, min(4, os.cpu_count() or 1)))
+        torch.set_num_threads(max(1, min(2, (os.cpu_count() or 2) // 4)))  # leave the cores to speech recognition
         return cls(model, torch)
 
     def detect(self, window: AudioWindow) -> VoiceResult:

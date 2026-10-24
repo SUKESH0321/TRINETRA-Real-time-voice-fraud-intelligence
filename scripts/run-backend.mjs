@@ -4,6 +4,8 @@ import { backend, ensureVenv, run, venvPython } from "./lib.mjs";
 ensureVenv();
 if (process.argv.includes("--pytest")) {
   run(venvPython, ["-m", "pytest", "-q"], { cwd: backend });
+} else if (process.argv.includes("--check-asr")) {
+  run(venvPython, ["-m", "app.transcription"], { cwd: backend });
 } else if (process.argv.includes("--check-scenarios")) {
   run(venvPython, ["tools/check_scenarios.py"], { cwd: backend });
 } else {

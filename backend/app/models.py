@@ -20,6 +20,7 @@ class TranscriptLine:
     text: str
     source: str                # scripted | manual | real
     method: str = ""
+    session: str = ""          # call/session identifier (scenario id for demos, random id for live calls)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -188,7 +188,10 @@ def test_ws_invalid_audio_frame_does_not_kill_session(client):
         err = ws.receive_json()
         assert err["type"] == "error" and err["code"] == "bad_length"
         ws.send_json({"type": "ping"})
-        assert ws.receive_json()["type"] == "pong"
+        nxt = ws.receive_json()
+        while nxt["type"] == "transcription_status":  # an unavailable-model status may be queued first
+            nxt = ws.receive_json()
+        assert nxt["type"] == "pong"
 
 
 def test_ws_bad_input_is_reported_not_fatal(client):

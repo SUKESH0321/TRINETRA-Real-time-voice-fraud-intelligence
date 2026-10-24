@@ -1,20 +1,21 @@
 """TRINETRA backend: FastAPI app + WebSockets.
 
 REST
-  GET  /api/health                 liveness + capability summary
-  GET  /api/scenarios              scenario list (with expected outcomes and injected evidence)
-  GET  /api/scenarios/{id}/audio   bundled demo clip (WAV), if any
-  GET  /api/rules                  the active risk rules (thresholds are inspectable)
+  GET  /api/health                    liveness + detector and transcription status (accurate, actionable)
+  POST /api/transcription/retry       try loading the speech model again (e.g. after `npm run setup:asr`)
+  GET  /api/scenarios                 scenario list (with expected outcomes and injected evidence)
+  GET  /api/scenarios/{id}/audio      bundled demo clip (WAV), if any
+  GET  /api/rules                     the active risk rules (thresholds are inspectable)
 WebSocket
-  /ws/session                      one analysis session (scripted scenario, live mic, or WebRTC callee)
-  /ws/signal/{room}                WebRTC signaling relay for the in-app two-party call
+  /ws/session                         one analysis session (scripted scenario, live mic, or WebRTC callee)
+  /ws/signal/{room}                   WebRTC signaling relay for the in-app two-party call
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -27,41 +28,64 @@ from . import scenarios as sc
 from .config import load_rules
 from .models import SRC_MANUAL
 from .session import CallSession
-from .transcription import Transcriber, make_transcriber
+from .transcription import Transcriber, TranscriptionService
 from .voice_analysis import DetectorRegistry, default_registry
 from .websocket_manager import SignalingRooms, SocketSender
 
 log = logging.getLogger("trinetra")
+MAX_BACKLOG_S = 300  # live audio queued for processing is capped at five minutes of audio
+
+
+def _as_service(transcriber: Transcriber | TranscriptionService | None) -> TranscriptionService:
+    if transcriber is None:
+        return TranscriptionService.from_env()
+    if isinstance(transcriber, TranscriptionService):
+        return transcriber
+    return TranscriptionService.static(transcriber)
 
 
 def create_app(
     rules: dict[str, Any] | None = None,
     registry: DetectorRegistry | None = None,
-    transcriber: Transcriber | None = None,
+    transcriber: Transcriber | TranscriptionService | None = None,
     scenario_dir: Path | None = None,
 ) -> FastAPI:
-    app = FastAPI(title="TRINETRA", version="0.1.0")
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s: %(message)s")
+    state: dict[str, Any] = {"registry": registry}
+    service = _as_service(transcriber)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        # Controlled startup: load the detectors once (off the event loop), and start the speech model in the
+        # background so the server is reachable immediately and reports "loading" honestly until it is ready.
+        if state["registry"] is None:
+            state["registry"] = await asyncio.to_thread(default_registry)
+        service.start()
+        st = service.status()
+        log.info("transcription: %s (%s)", st["state"], st["detail"])
+        yield
+
+    app = FastAPI(title="TRINETRA", version="0.1.0", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
                        allow_methods=["*"], allow_headers=["*"])
     rules = rules or load_rules()
     scenarios = sc.load_scenarios(scenario_dir)
     rooms = SignalingRooms()
-    state: dict[str, Any] = {"registry": registry, "transcriber": transcriber}
 
     def get_registry() -> DetectorRegistry:
-        if state["registry"] is None:
+        if state["registry"] is None:  # only reachable when the app is used without lifespan (e.g. some tests)
             state["registry"] = default_registry()
         return state["registry"]
-
-    def get_transcriber() -> Transcriber:
-        if state["transcriber"] is None:
-            state["transcriber"] = make_transcriber()
-        return state["transcriber"]
 
     # ---- REST ----------------------------------------------------------------------------
     @app.get("/api/health")
     def health() -> dict[str, Any]:
-        return {"ok": True, "detectors": get_registry().status(), "transcription": get_transcriber().status()}
+        return {"ok": True, "detectors": get_registry().status(), "transcription": service.status()}
+
+    @app.post("/api/transcription/retry")
+    def retry_transcription() -> dict[str, Any]:
+        return service.retry()
 
     @app.get("/api/scenarios")
     def list_scenarios() -> list[dict[str, Any]]:
@@ -83,37 +107,67 @@ def create_app(
     async def ws_session(ws: WebSocket) -> None:
         await ws.accept()
         send = SocketSender(ws)
-        session = CallSession(rules, get_registry(), get_transcriber())
+        session = CallSession(rules, get_registry(), service)
         play_task: asyncio.Task | None = None
-        audio_q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=100)
         audio_task: asyncio.Task | None = None
-        clock = {"t0": 0.0}
-
-        def now() -> float:
-            return round(time.monotonic() - clock["t0"], 2) if session.mode in ("live-mic", "webrtc") else session.t
+        audio_q: asyncio.Queue[bytes | None] = asyncio.Queue()  # unbounded by count; bounded by seconds below
+        backlog = {"bytes": 0}
 
         async def emit(msgs: list[dict[str, Any]]) -> None:
             for m in msgs:
                 await send(m)
 
-        async def stop_all() -> None:
-            nonlocal play_task, audio_task
-            for task in (play_task, audio_task):
-                if task and not task.done():
-                    task.cancel()
-                    try:
-                        await task
-                    except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                        pass
-            play_task = audio_task = None
-            while not audio_q.empty():
-                audio_q.get_nowait()
+        async def cancel(task: asyncio.Task | None) -> None:
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                    pass
 
         async def audio_worker() -> None:
-            while True:
-                data = await audio_q.get()
-                msgs = await asyncio.to_thread(session.ingest_audio_chunk, data)
-                await emit(msgs)
+            """Single consumer: batches whatever has arrived, never drops audio, flushes on the stop sentinel."""
+            finish = False
+            while not finish:
+                item = await audio_q.get()
+                batch: list[bytes] = []
+                if item is None:
+                    finish = True
+                else:
+                    batch.append(item)
+                while not finish and not audio_q.empty():  # coalesce when processing is behind
+                    nxt = audio_q.get_nowait()
+                    if nxt is None:
+                        finish = True
+                    else:
+                        batch.append(nxt)
+                if batch:
+                    backlog["bytes"] -= sum(len(b) for b in batch)
+                    await emit(session.ingest_audio_chunks(batch, process=False))  # fast: decode + buffer, never drops audio
+                    await emit(session.begin_process())
+                    # Speech recognition and the voice detectors are independent, so they run in parallel and
+                    # a slow detector can no longer delay transcripts. Results are applied on this one task.
+                    voice, asr = await asyncio.gather(asyncio.to_thread(session.compute_voice), asyncio.to_thread(session.compute_asr))
+                    await emit(session.apply_results(voice, asr))
+            await emit(await asyncio.to_thread(session.end))  # decodes the remaining buffer, then closes the call
+
+        async def stop_live() -> None:
+            nonlocal audio_task
+            if audio_task and not audio_task.done():
+                audio_q.put_nowait(None)  # sentinel: process everything queued, flush, end
+                try:
+                    await asyncio.wait_for(asyncio.shield(audio_task), timeout=60)
+                except asyncio.TimeoutError:
+                    log.warning("live session did not finish flushing within 60 s; cancelling")
+                    await cancel(audio_task)
+                    await emit(await asyncio.to_thread(session.end))
+            audio_task = None
+
+        async def stop_all() -> None:
+            nonlocal play_task
+            await cancel(play_task)
+            play_task = None
+            await stop_live()
 
         await send({"type": "hello", "capabilities": session.capabilities(),
                     "scenarios": [s.public() for s in scenarios.values()]})
@@ -123,9 +177,14 @@ def create_app(
                 if packet.get("type") == "websocket.disconnect":
                     break
                 if packet.get("bytes") is not None:
-                    if session.state == "running" and session.mode in ("live-mic", "webrtc"):
-                        if audio_q.full():
-                            audio_q.get_nowait()  # keep it real-time: drop the oldest chunk
+                    if session.state == "running" and session.mode in ("live-mic", "webrtc") and audio_task is not None:
+                        if backlog["bytes"] > MAX_BACKLOG_S * 32000:
+                            await send({"type": "error", "code": "audio_backlog",
+                                        "message": "Audio is arriving faster than it can be processed; the oldest backlog was discarded."})
+                            while not audio_q.empty():
+                                audio_q.get_nowait()
+                            backlog["bytes"] = 0
+                        backlog["bytes"] += len(packet["bytes"])
                         audio_q.put_nowait(packet["bytes"])
                     continue
                 try:
@@ -153,7 +212,7 @@ def create_app(
                         await send({"type": "error", "code": "bad_mode", "message": "Unknown live mode."})
                         continue
                     await stop_all()
-                    clock["t0"] = time.monotonic()
+                    backlog["bytes"] = 0
                     await emit(session.start(mode, {"title": msg.get("title", "")}))
                     audio_task = asyncio.create_task(audio_worker())
 
@@ -161,12 +220,14 @@ def create_app(
                     if session.state != "running":
                         await send({"type": "error", "code": "no_call", "message": "Start a call before adding transcript text."})
                         continue
-                    await emit(session.ingest_transcript(now(), msg.get("speaker", "caller"), str(msg.get("text", "")),
-                                                         SRC_MANUAL, "manual-input"))
+                    t = session.audio_s if session.mode in ("live-mic", "webrtc") else session.t
+                    await emit(await asyncio.to_thread(session.ingest_transcript, t, msg.get("speaker", "caller"),
+                                                       str(msg.get("text", "")), SRC_MANUAL, "manual-input"))
 
                 elif kind == "stop":
                     await stop_all()
-                    await emit(session.end(now()))
+                    if session.state == "running":  # a scenario that was stopped part-way
+                        await emit(session.end())
 
                 elif kind == "ping":
                     await send({"type": "pong"})
@@ -179,7 +240,8 @@ def create_app(
             pass  # receive() after disconnect
         finally:
             send.open = False
-            await stop_all()
+            await cancel(play_task)
+            await cancel(audio_task)  # the socket is gone: nobody to flush to
 
     # ---- WebRTC signaling ----------------------------------------------------------------
     @app.websocket("/ws/signal/{room}")

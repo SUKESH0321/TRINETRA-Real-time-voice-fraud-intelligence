@@ -10,6 +10,7 @@ export interface TranscriptLine {
   text: string;
   source: Source;
   method: string;
+  session?: string;
 }
 
 export interface Finding {
@@ -134,15 +135,42 @@ export interface ScenarioInfo {
   order: number;
 }
 
+export type TranscriptionState = "idle" | "loading" | "ready" | "transcribing" | "unavailable" | "error";
+
+export interface TranscriptionDiag {
+  frames: number;
+  audio_s: number;
+  rms: number;
+  quiet_s: number;
+  decodes: number;
+  decode_ms: number;
+  buffer_s: number;
+  finals: number;
+  windows_skipped: number;
+  invalid_chunks: number;
+}
+
+export interface TranscriptionStatus {
+  state: TranscriptionState;
+  name: string;
+  code?: string;
+  detail: string;
+  action?: string;
+  cause?: string;
+  diag?: TranscriptionDiag;
+}
+
 export interface Capabilities {
   detectors: Record<"synthetic" | "manipulation", { available: boolean; name: string; experimental: boolean }>;
-  transcription: { state: "unavailable" | "ready"; name: string; detail: string };
+  transcription: TranscriptionStatus;
 }
 
 export type ServerMsg =
   | { type: "hello"; capabilities: Capabilities; scenarios: ScenarioInfo[]; seq?: number }
-  | { type: "call_state"; state: CallStateName; mode: CallMode; t: number; info?: Record<string, unknown>; capabilities?: Capabilities; summary?: { level: Level; alerts: number } }
+  | { type: "call_state"; state: CallStateName; mode: CallMode; t: number; info?: Record<string, unknown>; capabilities?: Capabilities; summary?: { level: Level; peak?: Level; alerts: number } }
   | { type: "transcript"; line: TranscriptLine }
+  | { type: "transcript_partial"; text: string; t: number; session: string }
+  | ({ type: "transcription_status" } & TranscriptionStatus)
   | { type: "finding"; finding: Finding }
   | { type: "voice"; result: VoiceResult }
   | { type: "risk"; assessment: Assessment }

@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from .models import Finding, SRC_SCRIPTED, SRC_MANUAL
+from .models import Finding, SRC_MANUAL, SRC_REAL, SRC_SCRIPTED
 
 I = re.IGNORECASE
 
@@ -255,7 +255,7 @@ class ScamAnalyzer:
                         t=round(t, 2),
                         action=self.actions.get(hit.category, self.actions["default"]),
                         method=f"rule-based:{hit.rule_id}",
-                        source=source if source in (SRC_SCRIPTED, SRC_MANUAL) else SRC_SCRIPTED,
+                        source=source if source in (SRC_SCRIPTED, SRC_MANUAL, SRC_REAL) else SRC_SCRIPTED,
                         rule_id=hit.rule_id,
                     )
                 )

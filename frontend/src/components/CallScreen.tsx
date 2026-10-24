@@ -8,7 +8,7 @@ import { CallScrubber } from "./viz";
 import { Visualizer } from "./Visualizer";
 import { WarningCard } from "./WarningCard";
 import { Btn, cx, LEVEL_LABEL, LEVEL_STYLE } from "./ui";
-import type { Level } from "../types";
+import type { Level, TranscriptionStatus } from "../types";
 
 interface Props {
   state: SessionState;
@@ -26,6 +26,9 @@ interface Props {
   onManual: (speaker: "caller" | "you", text: string) => void;
   notice: string | null;
   onClearNotice: () => void;
+  asr: TranscriptionStatus | undefined;
+  onRetryAsr: () => void;
+  conn: "connecting" | "open" | "closed";
 }
 type AlertSettingsRules = Parameters<typeof AlertSettings>[0]["rules"];
 
@@ -68,6 +71,11 @@ export function CallScreen(p: Props) {
         <div role="status" data-testid="elevated-indicator" className="anim-in mb-8 border-l-[3px] border-amber py-1 pl-4">
           <p className="eyebrow !text-amber">Elevated · no sound</p>
           <p className="mt-0.5 text-[15px]">{state.indicator.reason}</p>
+        </div>
+      )}
+      {p.conn !== "open" && (
+        <div role="alert" data-testid="disconnected" className="mb-8 border-l-[3px] border-red py-1 pl-4 text-[14px]">
+          <b className="font-medium">Disconnected from the backend.</b> Reconnecting automatically. {live && running ? "Audio sent while disconnected is lost; stop and restart the call if this lasts." : ""}
         </div>
       )}
       {p.notice && (
@@ -114,7 +122,9 @@ export function CallScreen(p: Props) {
                   </>}
               {call.state === "ended" && call.summary && final && (
                 <span className="text-[14px] text-ink-2">
-                  Final risk <b className={cx("font-semibold", LEVEL_STYLE[final].text)}>{LEVEL_LABEL[final]}</b> · {call.summary.alerts} alert{call.summary.alerts === 1 ? "" : "s"}
+                  Final risk <b className={cx("font-semibold", LEVEL_STYLE[final].text)}>{LEVEL_LABEL[final]}</b>
+                  {call.summary.peak && call.summary.peak !== call.summary.level && <> · peak <b className={cx("font-semibold", LEVEL_STYLE[call.summary.peak as Level].text)}>{LEVEL_LABEL[call.summary.peak as Level]}</b></>}
+                  {" "}· {call.summary.alerts} alert{call.summary.alerts === 1 ? "" : "s"}
                 </span>
               )}
             </div>
@@ -123,8 +133,8 @@ export function CallScreen(p: Props) {
             )}
           </section>
 
-          <TranscriptPanel lines={state.transcript} findings={state.findings} caps={state.caps?.transcription} status={call.state}
-            canSend={running && live} onSend={p.onManual} />
+          <TranscriptPanel lines={state.transcript} findings={state.findings} asr={p.asr} partial={state.partial} onRetry={p.onRetryAsr}
+            live={live && running} status={call.state} canSend={running && live} onSend={p.onManual} />
           <Timeline entries={state.timeline} />
         </div>
 

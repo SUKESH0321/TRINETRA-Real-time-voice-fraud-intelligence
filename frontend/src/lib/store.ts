@@ -1,6 +1,6 @@
 import type {
   Alert, Assessment, CallMode, Level, CallStateName, Capabilities, Finding, ScenarioInfo, ServerMsg, TimelineEntry,
-  TranscriptLine, VoiceResult,
+  TranscriptLine, TranscriptionStatus, VoiceResult,
 } from "../types";
 
 export interface CallInfo {
@@ -10,7 +10,7 @@ export interface CallInfo {
   info: Record<string, unknown>;
   startedAt: number | null; // performance.now() when "running" arrived
   speed: number;
-  summary: { level: string; alerts: number } | null;
+  summary: { level: string; peak?: string; alerts: number } | null;
 }
 
 export interface UiError {
@@ -34,6 +34,8 @@ export interface SessionState {
   activeAlert: Alert | null; // warning card (high/critical)
   indicator: Alert | null; // subtle elevated indicator
   rms: number;
+  transcription: TranscriptionStatus | null; // live status of speech recognition during a call
+  partial: string; // interim text for speech that is still being recognised
   errors: UiError[];
 }
 
@@ -54,6 +56,8 @@ export const initialState: SessionState = {
   activeAlert: null,
   indicator: null,
   rms: 0,
+  transcription: null,
+  partial: "",
   errors: [],
 };
 
@@ -97,11 +101,18 @@ function applyMessage(s: SessionState, m: ServerMsg, now: number): SessionState 
             speed: Number(m.info?.speed ?? 1) || 1, summary: null,
           },
           transcript: [], findings: [], timeline: [], assessment: null, history: [], voice: {}, alerts: [],
-          activeAlert: null, indicator: null, rms: 0, errors: [],
+          activeAlert: null, indicator: null, rms: 0, partial: "", transcription: m.capabilities?.transcription ?? s.caps?.transcription ?? null, errors: [],
         };
       }
       return { ...s, call: { ...s.call, state: m.state, t: m.t, summary: m.summary ?? null } };
     }
+    case "transcription_status": {
+      const { type: _t, ...status } = m;
+      void _t;
+      return { ...s, transcription: status };
+    }
+    case "transcript_partial":
+      return { ...s, partial: m.text };
     case "transcript":
       return { ...s, transcript: [...s.transcript, m.line], call: { ...s.call, t: Math.max(s.call.t, m.line.t) } };
     case "finding":

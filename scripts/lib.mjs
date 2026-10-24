@@ -27,13 +27,33 @@ export function has(cmd, args = ["--version"]) {
   return r.status === 0;
 }
 
+// On Windows, commands without .exe (npm, uv) need a shell; quote arguments so paths with spaces survive.
+const quote = (a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
+function spawnArgs(cmd, args) {
+  const shell = isWin && !cmd.endsWith(".exe");
+  return { shell, args: shell ? args.map(quote) : args };
+}
+
+/** Run a command, streaming its output. Exits the whole script on failure. */
 export function run(cmd, args, opts = {}) {
-  console.log(`\n> ${cmd} ${args.join(" ")}`);
-  const r = spawnSync(cmd, args, { stdio: "inherit", shell: isWin && !cmd.endsWith(".exe"), cwd: root, ...opts });
+  console.log(`
+> ${cmd} ${args.join(" ")}`);
+  const sp = spawnArgs(cmd, args);
+  const r = spawnSync(cmd, sp.args, { stdio: "inherit", shell: sp.shell, cwd: root, ...opts });
   if (r.status !== 0) {
-    console.error(`\nCommand failed (exit ${r.status}): ${cmd} ${args.join(" ")}`);
+    console.error(`
+Command failed (exit ${r.status}): ${cmd} ${args.join(" ")}`);
     process.exit(r.status ?? 1);
   }
+}
+
+/** Run a command and report success instead of exiting. `capture: true` returns stdout. */
+export function runOk(cmd, args, { capture = false, ...opts } = {}) {
+  if (!capture) console.log(`
+> ${cmd} ${args.join(" ")}`);
+  const sp = spawnArgs(cmd, args);
+  const r = spawnSync(cmd, sp.args, { stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit", shell: sp.shell, cwd: root, encoding: "utf8", ...opts });
+  return { ok: r.status === 0, status: r.status, stdout: r.stdout ?? "" };
 }
 
 export function ensureVenv() {
